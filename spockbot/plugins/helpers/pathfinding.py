@@ -1,4 +1,5 @@
 import collections
+import logging
 
 from spockbot.plugins.base import PluginBase, pl_announce
 from spockbot.plugins.tools.collision import MTVTest, uncenter_position, center_position
@@ -13,6 +14,7 @@ crappy. Example plugin at:
 https://gist.github.com/nickelpro/098e7158019365f67de6
 """
 
+logger = logging.getLogger('spockbot')
 
 class PathCore(object):
     def __init__(self, plug):
@@ -22,6 +24,7 @@ class PathCore(object):
     def pathfind(self, pos, target):
         pos = center_position(pos.floor(), BoundingBox(1, 1))
         target = center_position(target.floor(), BoundingBox(1, 1))
+
         return self.plug.pathfind(PathNode(pos), PathNode(target))
 
     def build_list_from_node(self, node):
@@ -56,21 +59,42 @@ class PathPlugin(PluginBase):
         def calc_f_val(node):
             return node.node_dist + end_node.dist(node)
         open_list = []
+        open_list_preferred = []
         closed_list = []
-        open_list.append(start_node)
-        while open_list:
-            current_node = open_list.pop(0)
-            if current_node.parent is not None:
-                p = current_node.parent.parent
-                if p is not None and self.raycast_bbox(p, current_node):
-                    current_node.parent = p
-                    current_node.node_dist = p.node_dist + current_node.dist(p)
-            if current_node == end_node:
+        open_list_preferred.append(start_node)
+        while open_list_preferred:
+            current_node = open_list_preferred.pop(0)
+            logger.debug("current_node = %s and end_node = %s" % (current_node, end_node))
+            logger.debug("current_node jump %s" % (current_node.is_jump))
+            p = current_node.parent
+            # Cut out nodes in between leaving only ends of a straight line
+            # but jump nodes and fall nodes should always be individual
+            if p is not None and not p.is_jump and not p.is_fall:
+                pp = current_node.parent.parent
+                if pp is not None and self.raycast_bbox(pp, current_node):
+                    current_node.parent = pp
+                    current_node.node_dist = pp.node_dist + current_node.dist(p)
+            # XXX This test can fail badly as it ignores y
+            if current_node - Vector3(0, current_node.y, 0) == end_node - Vector3(0, end_node.y, 0):
                 return current_node
-            for valid_node in self.find_valid_nodes(current_node)[0]:
-                if valid_node not in (open_list + closed_list):
-                    open_list.append(valid_node)
-            open_list.sort(key=calc_f_val)
+            test_walk, test_fall, test_jump = self.find_valid_nodes(current_node)
+            moveable_nodes = []
+            for valid_node in test_walk + test_fall + test_jump:
+                if valid_node not in (open_list + closed_list + open_list_preferred):
+                    moveable_nodes.append(valid_node)
+            if moveable_nodes:
+                moveable_nodes.sort(key=end_node.dist)
+                logger.debug("sorted moveable_nodes %s" % moveable_nodes)
+                open_list_preferred.append(moveable_nodes.pop(0))
+                open_list += moveable_nodes
+
+            if not open_list_preferred and open_list:
+                # XXX Instead of falling back to the next closest option over and over
+                # probably better to find the obstical edge and follow it in both directions
+                # till <something smart> then we find a path around that way.
+                logger.debug("falling back to non-preferred")
+                open_list.sort(key=calc_f_val)
+                open_list_preferred.append(open_list.pop(0))
             closed_list.append(current_node)
         return None
 
@@ -112,32 +136,30 @@ class PathPlugin(PluginBase):
         return False
 
     def single_query(self, node, offset, walk_nodes, fall_nodes, jump_nodes):
+        walk_bool = fall_bool = jump_bool = False
         walk_node = node + offset
         if not self.check_for_bbox(walk_node):
             fall_node = node - Vector3(0, 1, 0)
             if not self.check_for_bbox(fall_node):
                 fall_node.parent = node
                 fall_node.node_dist = node.node_dist + fall_node.dist(node)
+                fall_node.is_fall = True
                 fall_nodes.append(fall_node)
-                walk_bool = False
                 fall_bool = True
             else:
                 walk_node.parent = node
                 walk_node.node_dist = node.node_dist + walk_node.dist(node)
                 walk_nodes.append(walk_node)
                 walk_bool = True
-                fall_bool = False
         else:
-            walk_bool = False
-            fall_bool = False
-        jump_node = walk_node + Vector3(0, 1, 0)
-        if not self.check_for_bbox(jump_node):
-            jump_node.parent = node
-            jump_node.node_dist = node.node_dist + jump_node.dist(node)
-            jump_nodes.append(jump_node)
-            jump_bool = True
-        else:
-            jump_bool = False
+            # Only test jump if walk and fall failed
+            jump_node = walk_node + Vector3(0, 1, 0)
+            if not self.check_for_bbox(jump_node):
+                jump_node.parent = node
+                jump_node.node_dist = node.node_dist + jump_node.dist(node)
+                jump_node.is_jump = True
+                jump_nodes.append(jump_node)
+                jump_bool = True
         return walk_bool, fall_bool, jump_bool
 
     def find_valid_nodes(self, node):
@@ -188,4 +210,4 @@ class PathPlugin(PluginBase):
         if any(diag_nodes):
             self.single_query(root_node, Vector3(-1, 0, 1), *diag_nodes)
 
-        return walk_nodes, jump_nodes, fall_nodes
+        return walk_nodes, fall_nodes, jump_nodes
