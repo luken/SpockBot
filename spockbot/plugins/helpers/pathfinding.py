@@ -64,8 +64,6 @@ class PathPlugin(PluginBase):
         open_list_preferred.append(start_node)
         while open_list_preferred:
             current_node = open_list_preferred.pop(0)
-            logger.debug("current_node = %s and end_node = %s" % (current_node, end_node))
-            logger.debug("current_node jump %s" % (current_node.is_jump))
             p = current_node.parent
             # Cut out nodes in between leaving only ends of a straight line
             # but jump nodes and fall nodes should always be individual
@@ -84,7 +82,6 @@ class PathPlugin(PluginBase):
                     moveable_nodes.append(valid_node)
             if moveable_nodes:
                 moveable_nodes.sort(key=end_node.dist)
-                logger.debug("sorted moveable_nodes %s" % moveable_nodes)
                 open_list_preferred.append(moveable_nodes.pop(0))
                 open_list += moveable_nodes
 
@@ -92,7 +89,6 @@ class PathPlugin(PluginBase):
                 # XXX Instead of falling back to the next closest option over and over
                 # probably better to find the obstical edge and follow it in both directions
                 # till <something smart> then we find a path around that way.
-                logger.debug("falling back to non-preferred")
                 open_list.sort(key=calc_f_val)
                 open_list_preferred.append(open_list.pop(0))
             closed_list.append(current_node)
