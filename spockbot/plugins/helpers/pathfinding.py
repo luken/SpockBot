@@ -4,6 +4,7 @@ Implements the Lazy Theta* pathfinding algorithm
 """
 
 import collections
+import logging
 
 from spockbot.mcdata import blocks, constants as const
 from spockbot.mcdata.utils import BoundingBox
@@ -14,6 +15,7 @@ from spockbot.plugins.tools.collision import(
 from spockbot.plugins.tools.event import EVENT_UNREGISTER
 from spockbot.vector import Vector3
 
+logger = logging.getLogger('spockbot')
 
 FOUND_VALID_PATH = 0x01
 TIMEOUT_REACHED = 0x02
@@ -22,8 +24,13 @@ NO_VALID_PATH = 0x04
 
 
 class PathfindingCore(object):
-    def __init__(self, start_path):
-        self.pathfind = start_path
+    def __init__(self, plug):
+        self.__plug = plug
+        self.pathfind = plug.start_path
+
+    @property
+    def is_processing(self):
+        return self.__plug.path_job is not None
 
 
 class Path(object):
@@ -68,7 +75,7 @@ class PathfindingPlugin(PluginBase):
         self.col = MTVTest(
             self.world, BoundingBox(const.PLAYER_WIDTH, const.PLAYER_HEIGHT)
         )
-        ploader.provides('Pathfinding', PathfindingCore(self.start_path))
+        ploader.provides('Pathfinding', PathfindingCore(self))
 
     def build_list_from_node(self, node):
         ret = collections.deque()
@@ -92,12 +99,15 @@ class PathfindingPlugin(PluginBase):
         path, scb, fcb = self.path_job
         ret = self.pathfind(path)
         if ret == FOUND_VALID_PATH:
-            self.path_job = None
             scb(self.build_list_from_node(path.result))
+            # Unset path_job after scb in order to plug race in
+            # movment.is_moving test
+            self.path_job = None
             return EVENT_UNREGISTER
         elif ret == NO_VALID_PATH and fcb:
-            self.path_job = None
             fcb(None)
+            self.path_job = None
+            return EVENT_UNREGISTER
 
     def pathfind(self, path):
         while path.open_list and self.timers.get_timeout():

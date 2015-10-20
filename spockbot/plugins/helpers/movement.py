@@ -4,9 +4,13 @@ movement so the client doesn't try to pull itself in a dozen
 directions.
 """
 
+import logging
+
 from spockbot.plugins.base import PluginBase, pl_announce
 from spockbot.plugins.tools.event import EVENT_UNREGISTER
 from spockbot.vector import Vector3
+
+logger = logging.getLogger('spockbot')
 
 
 class MovementCore(object):
@@ -19,7 +23,9 @@ class MovementCore(object):
 
     @property
     def is_moving(self):
-        return self.__plug.path_nodes is not None
+        is_processing = self.__plug.pathfinding.is_processing
+        is_moving = self.__plug.path_nodes is not None
+        return (is_moving or is_processing)
 
     @property
     def current_path(self):
@@ -83,6 +89,7 @@ class MovementPlugin(PluginBase):
     def follow_path(self, _, __):
         if not self.path_nodes:
             self.movement.stop()
+            self.event.emit('movement_follow_path_done')
             return EVENT_UNREGISTER
         target = self.path_nodes[0]
         jumped = False
@@ -91,5 +98,3 @@ class MovementPlugin(PluginBase):
             jumped = True
         if self.physics.move_target(target) or jumped:
             self.path_nodes.popleft()
-            if not self.path_nodes:
-                self.movement.stop()
