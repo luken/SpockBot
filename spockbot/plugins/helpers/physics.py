@@ -52,7 +52,10 @@ class PhysicsCore(object):
     def move_target(self, vector):
         self.direction = vector - self.pos
         self.direction.y = 0
-        if self.direction <= Vector3(self.vec.x, 0, self.vec.z):
+        slop = 0.001
+        xslop = slop if self.vec.x >= 0 else slop*-1
+        zslop = slop if self.vec.z >= 0 else slop*-1
+        if self.direction <= Vector3(self.vec.x+xslop, 0, self.vec.z+zslop):
             return True
 
     def move_vector(self, vector):
